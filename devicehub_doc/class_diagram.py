@@ -4,77 +4,127 @@
     To use this module, install 'graphviz' through pip and just execute the class: Graphviz()
     You can add 2 parameters, the location of the file and the type.
 """
-
-from collections import OrderedDict
+from ereuse_devicehub.resources.account.settings import Account
+from ereuse_devicehub.resources.device.benchmark_settings import Benchmark
+from ereuse_devicehub.resources.device.component.settings import Component
+from ereuse_devicehub.resources.device.schema import Product
+from ereuse_devicehub.resources.place.settings import Place
 from graphviz import Digraph
 from os.path import expanduser
-from ereuse_devicehub.resources.device.settings import Device
-from ereuse_devicehub.resources.event.settings import Event
+from ereuse_devicehub.resources.event.settings import Event, EventWithOneDevice, EventWithDevices
 from ereuse_devicehub.resources.schema import RDFS
-from ereuse_devicehub.utils import Naming
+
+from devicehub_doc.doc import Doc
 
 
-class ClassDiagram:
-    def __init__(self, app):
-        home = expanduser('~')
-        self.g = Digraph(format='png', directory=home)
-        self.g.attr('node', shape='record')
-        self.classes = Digraph()
-        self.enums = Digraph()
-        self.devices = Digraph()
-        self.events = Digraph()
-        self.generate_class(RDFS, self.classes)
-        device_subclasses = Device.subclasses() + [Device]
-        event_subclasses = Event.subclasses() + [Event]
+class ClassDiagram(Doc):
+    """
+    Generates a class diagram for DeviceHub classes, using graphviz.
+
+    the parameter `divide` of the initialization toggles the two ways of obtaining the diagram:
+    - A big, full diagram.
+    - Divided by different parts, so it is easily embeddable to documents.
+    """
+    def __init__(self, divide=True, img_format='eps', file_prefix='devicehub diagram'):
+        self.img_format = img_format
+        self.directory = expanduser('~')
+        self.file_prefix = file_prefix
+        g = Digraph()
+        options = {
+            'nodesep': '0.2',
+            'ranksep': '0.5',
+            'margin': '0'
+        }
+        options_neato = dict(options, **{
+            'overlap': 'ortho',
+            'splines': 'true',
+            'ranksep': '0.5',
+            'ratio': '2'
+        })
+        classes = Digraph(graph_attr=options)
+        products = Digraph(graph_attr=options)
+        components = Digraph(engine='neato', graph_attr=options_neato)
+        events_with_one_device = Digraph(graph_attr=options)
+        events_with_devices = Digraph(engine='neato', graph_attr=options_neato)
+        others = Digraph(graph_attr=options)
+        if divide:
+            for graph in (products, events_with_one_device, others, events_with_devices, components):
+                self.initialize_graph(graph)
+        else:
+            self.initialize_graph(g)
+        self.generate_class(RDFS, classes)
+        product_subclasses = Product.subclasses() + [Product]
+        event_with_one_device_subclasses = EventWithOneDevice.subclasses() + [Event, EventWithOneDevice]
+        event_with_devices_subclasses = EventWithDevices.subclasses() + [Event, EventWithDevices]
+        other_subclasses = Place.subclasses() + Benchmark.subclasses() + Account.subclasses() + [Place, Benchmark, Account]
+        components_subclasses = Component.subclasses() + [Component]
         for subclass in RDFS.subclasses():
-            if subclass in device_subclasses:
-                self.generate_class(subclass, self.devices)
-            elif subclass in event_subclasses:
-                self.generate_class(subclass, self.events)
-            else:
-                self.generate_class(subclass, self.classes)
-        self.g.subgraph(self.classes)
-        self.g.subgraph(self.enums)
-        self.g.subgraph(self.events)
-        self.g.subgraph(self.devices)
-        self.g.render('diagram.sv', None, True)
+            if subclass in components_subclasses:
+                self.generate_class(subclass, components)
+            elif subclass in product_subclasses:
+                self.generate_class(subclass, products)
+            elif subclass in event_with_one_device_subclasses:
+                self.generate_class(subclass, events_with_one_device)
+            elif subclass in event_with_devices_subclasses:
+                self.generate_class(subclass, events_with_devices)
+            elif subclass in other_subclasses:
+                self.generate_class(subclass, others)
+            else:  # RDFS, Thing
+                self.generate_class(subclass, classes)
+        if divide:
+            for graph, name in ((products, 'products'), (components, 'components'), (events_with_one_device, 'events with one device'), (events_with_devices, 'events with devices'), (others, 'place, account and benchmark')):
+                self.generate_graph(graph, (classes,), name)
+        else:
+            self.generate_graph(g, (events_with_one_device, products, classes, others,), 'general')
+
+    def generate_graph(self, graph: Digraph, sub_graphs: tuple, name):
+        graph.format = self.img_format
+        graph.directory = self.directory
+        for sub_graph in sub_graphs:
+            graph.subgraph(sub_graph)
+        graph.render('{} {}'.format(self.file_prefix, name), None, False)
+        print('Class diagram {} written.'.format(name))
+
+    @staticmethod
+    def initialize_graph(graph: Digraph):
+        graph.attr('node', shape='record')
 
     def generate_class(self, cls, group):
-        schema = OrderedDict(cls.actual_fields())
+        RDFS._import_schemas = False
+        schema = cls.actual_fields()
         if cls != RDFS:
             del schema['@type']
         name = cls.type_name()
-        group.node(name, '{{{}|{}}}'.format(name, '\l'.join(self.print_schema_fields(name, schema, group))))
+        group.node(name, '{{{}|{}}}'.format(name, '\l'.join(self.get_formatted_fields(name, schema, group))))
         try:
             super_class = cls.superclasses(1)[1]
-            group.edge(name, super_class.type_name(), arrowhead='empty')
+            group.edge(super_class.type_name(), name, arrowtail='empty', arrowhead='none', dir='both')
         except AttributeError:
             pass
 
-    def print_schema_fields(self, name: str, schema: OrderedDict, group):
-        fields = []
-        for field_name, settings in schema.items():
-            if 'data_relation' in settings:
-                if settings['type'] != 'list':
-                    head_label = '1' if settings.get('required', False) else '0..1'
+    def get_formatted_fields(self, type_name: str, schema: dict, group: Digraph) -> list:
+        resulting_fields = []
+        for field in self.get_fields(schema, schema_name=type_name):
+            name = field['name']
+            if 'reference' in field:
+                if field['type'] == 'list':
+                    head_label = '*' if field['attr']['Required'] else '1..*'
                 else:
-                    head_label = '*' if settings.get('required', False) else '1..*'
-                group.edge(name, Naming.type(settings['data_relation']['resource']), headlabel=head_label,
-                           taillabel='*', label=field_name)
+                    head_label = '1' if field['attr']['Required'] else '0..1'
+                group.edge(type_name, field['reference'], headlabel=head_label, taillabel='*', label=field['name'])
             else:
-                field = '+ {}'.format(field_name)
-                if len(settings.get('allowed', set())) > 0:
+                field['name'] = '*' + name if field['attr']['Unique'] else name
+                resulting_field = '+ {}'.format(field['name'])
+                if len(field['attr']['Allowed'] or []) > 0:
                     enum_name = '{}Enum'.format(name)
-                    self.enums.node(enum_name,
-                                    '{{{}Enum\lEnum|{}}}'.format(name, '\l'.join(map(str, settings['allowed']))))
-                    field += ': {}'.format(enum_name)
+                    group.node(enum_name, '{{{}Enum\lEnum|{}}}'.format(name, '\l'.join(map(str, field['attr']['Allowed']))))
+                    resulting_field += ': {}'.format(enum_name)
                 else:
-                    field += ': {}'.format(settings['type'])
-                if not settings.get('required', False):
-                    field += ' [0..1]'
-                if settings.get('writeonly', False):
-                    field += ' (write-only)'
-                if settings.get('readonly', False):
-                    field += ' (read-only)'
-                fields.append(field)
-        return fields
+                    resulting_field += ': {}'.format(field['type'])
+                resulting_field += ' [0..1]' if not field['attr']['Required'] else ''
+                resulting_field += ' (write-only)' if field['attr']['Write only'] else ''
+                resulting_field += ' (read-only)' if field['attr']['Read only'] else ''
+                resulting_fields.append((resulting_field, field['attr']['Sink']))
+        resulting_fields.sort(key=Doc.get_sink, reverse=True)
+        return [resulting_field[0] for resulting_field in resulting_fields]
+

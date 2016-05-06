@@ -1,3 +1,5 @@
+from os.path import expanduser
+
 from devicehub_doc.doc import Doc
 
 
@@ -14,9 +16,9 @@ class ApiToRST(Doc):
         self.write()
 
     def write(self):
-        with open('./docs/' + self.filename, '+w') as out:
+        with open(expanduser('~') + '/' + self.filename, '+w') as out:
             out.write(self.doc)
-        print("API docu written.")
+        print("API doc written.")
 
     def document_resource(self, settings: dict):
         one_successful = False
@@ -161,7 +163,7 @@ class ApiToRST(Doc):
                                                        schema_name=schema_name, settings=settings, method=method,
                                                        json_type=json_type))
         # Sorting and final preparation
-        fields.sort(key=DocuApiRST.get_sink, reverse=True)
+        fields.sort(key=Doc.get_sink, reverse=True)
         fields.append(space + ':<json object {}: See "Meta" for more information.'.format(self.config['META']))
         return '\n'.join([elem[0] for elem in fields])
 
@@ -210,9 +212,7 @@ class ApiToRST(Doc):
         else:
             raise EmptyError()
 
-    @staticmethod
-    def get_sink(combined: dict):
-        return combined[1] if combined[1] is not None else 0
+
 
 
 class EmptyError(Exception):

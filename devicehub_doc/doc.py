@@ -23,6 +23,7 @@ class Doc:
         - reference: the typeName of a data_relation
         - type: the type of the field
         - attr: dictionary of attributes. Nonexisting values are set as None, all keys exist.
+        - name: the name of the field
         """
         result_field = {'type': schema['type'], 'name': field_name}
         if self.special_cases(result_field, schema, **options):
@@ -87,3 +88,7 @@ class Doc:
                     result_field['reference'] = 'Component'
                 else:
                     result_field['type'] = 'list_of_Component'
+
+    @staticmethod
+    def get_sink(combined: dict):
+        return combined[1] if combined[1] is not None else 0
