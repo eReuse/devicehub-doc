@@ -7,12 +7,14 @@ class ApiToRST(Doc):
     """
     Generates a RST file compatible with `sphinxcontrib.httpdomain`.
     """
+
     def __init__(self, app):
-        self.doc = ''
+        self.doc = 'API\n===\n'
         self.config = app.config
         self.filename = 'api.rst'
-        for _, resource_settings in app.config['DOMAIN'].items():
-            self.doc += self.document_resource(resource_settings)
+        resource_settings = app.config['DOMAIN']
+        for key in sorted(resource_settings):
+            self.doc += self.document_resource(resource_settings[key])
         self.write()
 
     def write(self):
@@ -23,7 +25,7 @@ class ApiToRST(Doc):
     def document_resource(self, settings: dict):
         one_successful = False
         type_name = settings['_schema'].type_name()
-        doc = '{}\n====================\n'.format(type_name)
+        doc = '{}\n--------------------\n'.format(type_name)
         for method in settings['resource_methods']:
             try:
                 doc += self.document_endpoint(settings, method, True)
@@ -159,9 +161,12 @@ class ApiToRST(Doc):
         # Extra response fields
         if (method == 'POST' or method == 'PATCH') and 'extra_response_fields' in settings:
             for field_name in settings['extra_response_fields']:
-                fields.extend(self.get_formatted_field(field_name, schema[field_name], space=space, chevron='>',
+                try:
+                    fields.extend(self.get_formatted_field(field_name, schema[field_name], space=space, chevron='>',
                                                        schema_name=schema_name, settings=settings, method=method,
                                                        json_type=json_type))
+                except EmptyError:
+                    pass
         # Sorting and final preparation
         fields.sort(key=Doc.get_sink, reverse=True)
         fields.append(space + ':<json object {}: See "Meta" for more information.'.format(self.config['META']))
@@ -211,8 +216,6 @@ class ApiToRST(Doc):
             return super().get_field(field_name, schema, **options)
         else:
             raise EmptyError()
-
-
 
 
 class EmptyError(Exception):

@@ -25,7 +25,7 @@ class ClassDiagram(Doc):
     - A big, full diagram.
     - Divided by different parts, so it is easily embeddable to documents.
     """
-    def __init__(self, divide=True, img_format='eps', file_prefix='devicehub diagram'):
+    def __init__(self, divide=True, img_format='pdf', file_prefix='devicehub diagram'):
         self.img_format = img_format
         self.directory = expanduser('~')
         self.file_prefix = file_prefix
@@ -39,13 +39,17 @@ class ClassDiagram(Doc):
             'overlap': 'ortho',
             'splines': 'true',
             'ranksep': '0.5',
-            'ratio': '2'
+            'nodesep': '0.5',
+            'ratio': '2',
         })
+        options_edge = {
+            'len': '0.2'
+        }
         classes = Digraph(graph_attr=options)
         products = Digraph(graph_attr=options)
-        components = Digraph(engine='neato', graph_attr=options_neato)
+        components = Digraph(engine='neato', graph_attr=options_neato, edge_attr=options_edge)
         events_with_one_device = Digraph(graph_attr=options)
-        events_with_devices = Digraph(engine='neato', graph_attr=options_neato)
+        events_with_devices = Digraph(engine='neato', graph_attr=options_neato, edge_attr=options_edge)
         others = Digraph(graph_attr=options)
         if divide:
             for graph in (products, events_with_one_device, others, events_with_devices, components):
@@ -73,7 +77,10 @@ class ClassDiagram(Doc):
                 self.generate_class(subclass, classes)
         if divide:
             for graph, name in ((products, 'products'), (components, 'components'), (events_with_one_device, 'events with one device'), (events_with_devices, 'events with devices'), (others, 'place, account and benchmark')):
-                self.generate_graph(graph, (classes,), name)
+                if name == 'components' or name == 'events with devices':
+                    self.generate_graph(graph, (), name)
+                else:
+                    self.generate_graph(graph, (classes,), name)
         else:
             self.generate_graph(g, (events_with_one_device, products, classes, others,), 'general')
 
